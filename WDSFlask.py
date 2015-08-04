@@ -1,12 +1,13 @@
+import win32service
+from subprocess import Popen, PIPE
 import logging
 from logging.handlers import RotatingFileHandler
-from subprocess import Popen, PIPE
+from multiprocessing import Process
+
+import win32serviceutil
 from flask import Flask, request, jsonify
-import re
-import sys
 
 app = Flask(__name__)
-
 
 class ErrorClass(Exception):
     status_code = 400
@@ -75,9 +76,31 @@ def powershell():
     else:
         raise ErrorClass(out, status_code=200)
 
+class PySvc(win32serviceutil.ServiceFramework):
+    _svc_name_ = "CloudStack_WDS_Agent"
+    _svc_display_name_ = "CloudStack WDS Agent"
+    _svc_description_ = "WDS Agent for CloudStack"
 
-if __name__ == "__main__":
-    handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
-    handler.setLevel(logging.INFO)
-    app.logger.addHandler(handler)
-    app.run()
+    def __init__(self, args):
+        win32serviceutil.ServiceFramework.__init__(self,args)
+
+    # core logic of the service
+    def SvcDoRun(self):
+        self.process = Process(target=self.main)
+        self.process.start()
+        self.process.run()
+
+    # called when we're being shut down
+    def SvcStop(self):
+        self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+        self.process.terminate()
+        self.ReportServiceStatus(win32service.SERVICE_STOPPED)
+
+    def main(self):
+        handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
+        handler.setLevel(logging.INFO)
+        app.logger.addHandler(handler)
+        app.run()
+
+if __name__ == '__main__':
+    win32serviceutil.HandleCommandLine(PySvc)
