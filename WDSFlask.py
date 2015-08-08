@@ -1,13 +1,22 @@
+from __future__ import with_statement
 import win32service
 from subprocess import Popen, PIPE
 import logging
 from logging.handlers import RotatingFileHandler
-from multiprocessing import Process
+from multiprocessing import Process, Lock
+from multiprocessing.pool import ThreadPool
+
 
 import win32serviceutil
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
+p = ThreadPool(10)
+
+remoteInstallPath = "\\\\127.0.0.1\\reminst\\WdsClientUnattend"
+template_download_progress = dict()
+lock = Lock()
+
 
 class ErrorClass(Exception):
     status_code = 400
@@ -76,6 +85,143 @@ def powershell():
     else:
         raise ErrorClass(out, status_code=200)
 
+
+@app.route("/registertemplate")
+def registertemplate():
+    template_uuid = request.args.get("uuid").encode('utf8');
+    image_url = ""
+    boot_url = ""
+    client_unattended_file_url = ""
+    install_unattended_file_url = ""
+    image_group_name = ""
+    architecture = ""
+    single_image_name = ""
+    if request.args.get("image"):
+        image_url = request.args.get("image").encode('utf8');
+    if request.args.get("boot"):
+        boot_url = request.args.get("boot").encode('utf8');
+    if request.args.get("clientunattended"):
+        client_unattended_file_url = request.args.get("clientunattended").encode('utf8');
+    if request.args.get("installunattended"):
+        install_unattended_file_url = request.args.get("installunattended").encode('utf8');
+    if request.args.get("imagegroupname"):
+        image_group_name = request.args.get("imagegroupname").encode('utf8');
+    if request.args.get("imageroupname"):
+        architecture = request.args.get("imageroupname").encode('utf8');
+    if request.args.get("singleimagename"):
+        single_image_name = request.args.get("singleimagename").encode('utf8');
+
+    with lock:
+        InitialTemplateDownloadRequest = template_uuid not in template_download_progress
+
+    if InitialTemplateDownloadRequest:
+        p.apply_async(configureImage, args=(template_uuid, client_unattended_file_url, image_group_name, image_url, boot_url, install_unattended_file_url, single_image_name))
+        result = dict()
+        result["status"] = "InProgress"
+        with lock:
+            template_download_progress[template_uuid] = result
+        raise ErrorClass("InProgress", status_code=200)
+    else:
+        with lock:
+            result = template_download_progress[template_uuid]
+        raise ErrorClass(result["status"], status_code=200)
+
+def configureImage(template_uuid, client_unattended_file_url, image_group_name, image_url, boot_url, install_unattended_file_url, single_image_name):
+
+    [statusCode, out] = downloadFile(client_unattended_file_url, remoteInstallPath)
+    if statusCode != 0:
+        updateTemplateDownloadProgress(template_uuid, out, "Fail")
+        return
+
+    [statusCode, out] = createImageGroup(image_group_name)
+    if statusCode != 0:
+        updateTemplateDownloadProgress(template_uuid, out, "Fail")
+        return
+
+    [statusCode, out] = addImage(image_url, boot_url, install_unattended_file_url, image_group_name, single_image_name)
+    if statusCode != 0:
+        updateTemplateDownloadProgress(template_uuid, out, "Fail")
+        return
+
+    [statusCode, out] = setTransmissionTypeToImage(single_image_name, image_group_name)
+    if statusCode != 0:
+        updateTemplateDownloadProgress(template_uuid, out, "Fail")
+        return
+
+    updateTemplateDownloadProgress(template_uuid, out, "Pass")
+
+
+def updateTemplateDownloadProgress(template_uuid, message, status):
+    result = dict()
+    result["status"] = status
+    if message:
+        result["message"] = message
+    with lock:
+        template_download_progress[template_uuid] = result
+
+
+
+def downloadFile(urlToDownload, pathWhereToDownload):
+
+    command = "copy " + urlToDownload + " " + pathWhereToDownload
+    proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+    out, err = proc.communicate()
+    statusCode = proc.returncode
+    out = filter_non_printable(out)
+
+    return [statusCode, out]
+
+
+def setTransmissionTypeToImage(transmission_image_name, image_group_name):
+
+    command = "WDSUTIL /New-MulticastTransmission /FriendlyName:\"" + transmission_image_name + " AutoCast Transmission\" /Image:\"" + transmission_image_name + "\" " \
+                                                                                                                                                                 "/ImageType:Install /ImageGroup:" + image_group_name + " /TransmissionType:AutoCast "
+    proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+    out, err = proc.communicate()
+    statusCode = proc.returncode
+    out = filter_non_printable(out)
+
+    return [statusCode, out]
+
+def addImage(image_url, boot_url, relativepath_install_unattanded_file, imagegroupname, single_image_name):
+
+    command = "WDSUTIL /Add-Image /ImageFile:\"" + image_url + "\" /ImageType:Install /UnattendFile:\"" + relativepath_install_unattanded_file + "\" /ImageGroup:" + imagegroupname
+    if single_image_name:
+        command = command + " /SingleImage:\"" + single_image_name + "\""
+
+    proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+    out, err = proc.communicate()
+    statusCode = proc.returncode
+    out = filter_non_printable(out)
+
+    if statusCode != 0:
+        return [statusCode, out]
+
+    command = "WDSUTIL /Add-Image /ImageFile:\"" + boot_url + "\" /ImageType:Boot"
+    proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+    out, err = proc.communicate()
+    statusCode = proc.returncode
+    out = filter_non_printable(out)
+
+    return [statusCode, out]
+
+
+def createImageGroup(image_group_name):
+
+    command = "WDSUTIL /Get-ImageGroup /ImageGroup:" + image_group_name
+    proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+    out, err = proc.communicate()
+    statusCode = proc.returncode
+
+    if statusCode != 0:
+        command = "WDSUTIL /Add-ImageGroup /ImageGroup:" + image_group_name
+        proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate()
+        statusCode = proc.returncode
+        out = filter_non_printable(out)
+
+    return [statusCode, out]
+
 class PySvc(win32serviceutil.ServiceFramework):
     _svc_name_ = "CloudStack_WDS_Agent"
     _svc_display_name_ = "CloudStack WDS Agent"
@@ -100,7 +246,7 @@ class PySvc(win32serviceutil.ServiceFramework):
         handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
         handler.setLevel(logging.INFO)
         app.logger.addHandler(handler)
-        app.run()
+        app.run(threaded=True)
 
 if __name__ == '__main__':
     win32serviceutil.HandleCommandLine(PySvc)
