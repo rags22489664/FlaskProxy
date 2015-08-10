@@ -41,6 +41,10 @@ def handle_invalid_usage(error):
     response.status_code = error.status_code
     return response
 
+def sendresponse(res, status_code):
+    response = jsonify(res)
+    response.status_code = status_code
+    return response
 
 def filter_non_printable(str):
     return ''.join([c for c in str if (31 < ord(c) < 126) or ord(c) == 9 or ord(c) == 10 or ord(c) == 11 or ord(c) == 13 or ord(c) == 32])
@@ -67,7 +71,7 @@ def wdsutil():
     out = filter_non_printable(out);
 
     if statusCode != 0:
-        raise ErrorClass(out, status_code=410)
+        raise ErrorClass(out, status_code=400)
     else:
         raise ErrorClass(out, status_code=200)
 
@@ -81,7 +85,7 @@ def powershell():
     out = filter_non_printable(out);
 
     if statusCode != 0:
-        raise ErrorClass(out, status_code=410)
+        raise ErrorClass(out, status_code=400)
     else:
         raise ErrorClass(out, status_code=200)
 
@@ -102,58 +106,62 @@ def registertemplate():
         boot_url = request.args.get("boot").encode('utf8');
     if request.args.get("clientunattended"):
         client_unattended_file_url = request.args.get("clientunattended").encode('utf8');
-    if request.args.get("installunattended"):
-        install_unattended_file_url = request.args.get("installunattended").encode('utf8');
+    if request.args.get("imageunattended"):
+        install_unattended_file_url = request.args.get("imageunattended").encode('utf8');
     if request.args.get("imagegroupname"):
         image_group_name = request.args.get("imagegroupname").encode('utf8');
-    if request.args.get("imageroupname"):
-        architecture = request.args.get("imageroupname").encode('utf8');
+    if request.args.get("architecture"):
+        architecture = request.args.get("architecture").encode('utf8');
     if request.args.get("singleimagename"):
         single_image_name = request.args.get("singleimagename").encode('utf8');
 
     with lock:
         InitialTemplateDownloadRequest = template_uuid not in template_download_progress
 
+    result = dict()
+
     if InitialTemplateDownloadRequest:
         p.apply_async(configureImage, args=(template_uuid, client_unattended_file_url, image_group_name, image_url, boot_url, install_unattended_file_url, single_image_name))
-        result = dict()
         result["status"] = "InProgress"
+        result["status_code"] = 200
         with lock:
             template_download_progress[template_uuid] = result
-        raise ErrorClass("InProgress", status_code=200)
+        return sendresponse(result, 200)
     else:
         with lock:
             result = template_download_progress[template_uuid]
-        raise ErrorClass(result["status"], status_code=200)
+        return sendresponse(result, result["status_code"])
+
 
 def configureImage(template_uuid, client_unattended_file_url, image_group_name, image_url, boot_url, install_unattended_file_url, single_image_name):
 
     [statusCode, out] = downloadFile(client_unattended_file_url, remoteInstallPath)
     if statusCode != 0:
-        updateTemplateDownloadProgress(template_uuid, out, "Fail")
+        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400)
         return
 
     [statusCode, out] = createImageGroup(image_group_name)
     if statusCode != 0:
-        updateTemplateDownloadProgress(template_uuid, out, "Fail")
+        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400)
         return
 
     [statusCode, out] = addImage(image_url, boot_url, install_unattended_file_url, image_group_name, single_image_name)
     if statusCode != 0:
-        updateTemplateDownloadProgress(template_uuid, out, "Fail")
+        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400)
         return
 
     [statusCode, out] = setTransmissionTypeToImage(single_image_name, image_group_name)
     if statusCode != 0:
-        updateTemplateDownloadProgress(template_uuid, out, "Fail")
+        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400)
         return
 
-    updateTemplateDownloadProgress(template_uuid, out, "Pass")
+    updateTemplateDownloadProgress(template_uuid, out, "Pass", 200)
 
 
-def updateTemplateDownloadProgress(template_uuid, message, status):
+def updateTemplateDownloadProgress(template_uuid, message, status, status_code):
     result = dict()
     result["status"] = status
+    result["status_code"] = status_code
     if message:
         result["message"] = message
     with lock:
@@ -249,4 +257,8 @@ class PySvc(win32serviceutil.ServiceFramework):
         app.run(threaded=True)
 
 if __name__ == '__main__':
-    win32serviceutil.HandleCommandLine(PySvc)
+    #win32serviceutil.HandleCommandLine(PySvc)
+    handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
+    handler.setLevel(logging.INFO)
+    app.logger.addHandler(handler)
+    app.run(threaded=True)
