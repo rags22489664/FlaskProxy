@@ -100,20 +100,20 @@ def registertemplate():
     image_group_name = ""
     architecture = ""
     single_image_name = ""
-    if request.args.get("image"):
-        image_url = request.args.get("image").encode('utf8');
-    if request.args.get("boot"):
-        boot_url = request.args.get("boot").encode('utf8');
-    if request.args.get("clientunattended"):
-        client_unattended_file_url = request.args.get("clientunattended").encode('utf8');
-    if request.args.get("imageunattended"):
-        install_unattended_file_url = request.args.get("imageunattended").encode('utf8');
-    if request.args.get("imagegroupname"):
-        image_group_name = request.args.get("imagegroupname").encode('utf8');
-    if request.args.get("architecture"):
-        architecture = request.args.get("architecture").encode('utf8');
-    if request.args.get("singleimagename"):
-        single_image_name = request.args.get("singleimagename").encode('utf8');
+    if request.args.get("InstallImageFile"):
+        image_url = request.args.get("InstallImageFile").encode('utf8');
+    if request.args.get("BootImageFile"):
+        boot_url = request.args.get("BootImageFile").encode('utf8');
+    if request.args.get("ClientUnattendFile"):
+        client_unattended_file_url = request.args.get("ClientUnattendFile").encode('utf8');
+    if request.args.get("ImageUnattendFile"):
+        install_unattended_file_url = request.args.get("ImageUnattendFile").encode('utf8');
+    if request.args.get("ImageGroupName"):
+        image_group_name = request.args.get("ImageGroupName").encode('utf8');
+    if request.args.get("Architecture"):
+        architecture = request.args.get("Architecture").encode('utf8');
+    if request.args.get("SingleImageName"):
+        single_image_name = request.args.get("SingleImageName").encode('utf8');
 
     with lock:
         InitialTemplateDownloadRequest = template_uuid not in template_download_progress
