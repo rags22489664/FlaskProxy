@@ -89,6 +89,11 @@ def powershell():
     else:
         raise ErrorClass(out, status_code=200)
 
+@app.route("/ping")
+def ping():
+    result = dict()
+    result["status"] = "OK"
+    return sendresponse(result, 200)
 
 @app.route("/registertemplate")
 def registertemplate():
@@ -261,4 +266,4 @@ if __name__ == '__main__':
     handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
     handler.setLevel(logging.INFO)
     app.logger.addHandler(handler)
-    app.run(threaded=True)
+    app.run(threaded=True, host='10.105.113.127')
