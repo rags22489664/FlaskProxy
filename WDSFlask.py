@@ -6,7 +6,8 @@ from logging.handlers import RotatingFileHandler
 from multiprocessing import Process, Lock
 from multiprocessing.pool import ThreadPool
 
-
+import os
+import base64
 import win32serviceutil
 from flask import Flask, request, jsonify
 
@@ -16,6 +17,7 @@ p = ThreadPool(10)
 remoteInstallPath = "\\\\127.0.0.1\\reminst\\WdsClientUnattend"
 template_download_progress = dict()
 lock = Lock()
+IIS_DEFAULT_FOLDER="C:\\inetpub\\wwwroot"
 
 
 class ErrorClass(Exception):
@@ -74,6 +76,66 @@ def wdsutil():
         raise ErrorClass(out, status_code=400)
     else:
         raise ErrorClass(out, status_code=200)
+
+@app.route("/adduserdata")
+def adduserdata():
+
+    string = request.args.get("UserData").encode('utf8');
+    allEntires = string.split(";")
+    for entry in allEntires:
+        (vmIpOrMac, folder, fileName, contents) = entry.split(',', 3)
+        addUserData(vmIpOrMac, folder, fileName, contents)
+    raise ErrorClass("Success", 200)
+
+def addUserData(vmIpOrMac, folder, fileName, contents):
+    html_root = IIS_DEFAULT_FOLDER
+    fileName = fileName + ".txt"
+    targetMetadataFile = "meta-data.txt";
+
+    baseFolder = os.path.join(html_root, folder, vmIpOrMac)
+    if not os.path.exists(baseFolder):
+        os.makedirs(baseFolder)
+
+    datafileName = os.path.join(html_root, folder, vmIpOrMac, fileName)
+    metaManifest = os.path.join(html_root, folder, vmIpOrMac, targetMetadataFile)
+    if folder == "userdata":
+        if contents != "none":
+            contents = base64.urlsafe_b64decode(contents)
+        else:
+            contents = ""
+
+    try:
+        f = open(datafileName, 'w')
+        f.write(contents)
+        f.close()
+    except IOError:
+        raise ErrorClass("Error while opening/writing the file " + datafileName, 400)
+
+    if folder == "metadata" or folder == "meta-data":
+        writeIfNotHere(metaManifest, fileName)
+
+def writeIfNotHere(fileName, texts):
+    if not os.path.exists(fileName):
+        entries = []
+    else:
+        f = open(fileName, 'r')
+        entries = f.readlines()
+        f.close()
+
+    texts = [ "%s\n" % t for t in texts ]
+    need = False
+    for t in texts:
+        if not t in entries:
+            entries.append(t)
+            need = True
+
+    if need:
+        try:
+            f = open(fileName, 'w')
+            f.write(''.join(entries))
+            f.close()
+        except IOError:
+            raise ErrorClass("Error while opening/writing the file " + fileName, 400)
 
 @app.route("/powershell")
 def powershell():
