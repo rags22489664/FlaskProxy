@@ -189,7 +189,6 @@ def deletetemplate():
     install_image_file_name = image_url.rpartition('\\')[2]
     boot_image_file_name = boot_url.rpartition('\\')[2]
     result = dict()
-    result["status"] = status
     [statusCode, out] = removeMulticastTransmission(install_image_name, image_group_name, install_image_file_name)
     if statusCode != 0:
         result["status_code"] = 400
@@ -207,7 +206,7 @@ def deletetemplate():
         return sendresponse(result, statusCode)
     else:
         result["status_code"] = 200
-        result["message"] = out
+        result["message"] = "Template Deletion Successful"
         return sendresponse(result, statusCode)
 
 
