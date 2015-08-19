@@ -193,20 +193,24 @@ def deletetemplate():
     if statusCode != 0:
         result["status_code"] = 400
         result["message"] = out
+        result["status"] = "Fail"
         return sendresponse(result, result["status_code"])
     [statusCode, out] = removeImage(install_image_name, image_group_name, install_image_file_name, boot_image_name, architecture, boot_image_file_name)
     if statusCode != 0:
         result["status_code"] = 400
         result["message"] = out
+        result["status"] = "Fail"
         return sendresponse(result, result["status_code"])
     [statusCode, out] = deleteClientUnattendedFile(client_unattended_file_url)
     if statusCode != 0:
         result["status_code"] = 400
         result["message"] = out
+        result["status"] = "Fail"
         return sendresponse(result, result["status_code"])
     else:
         result["status_code"] = 200
         result["message"] = "Template Deletion Successful"
+        result["status"] = "Pass"
         return sendresponse(result, result["status_code"])
 
 
