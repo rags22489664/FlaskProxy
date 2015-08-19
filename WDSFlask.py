@@ -223,7 +223,7 @@ def removeMulticastTransmission(install_image_name, image_group_name, install_im
 def deleteClientUnattendedFile(client_unattended_file_url):
 
     client_unattended_file_relative_path = remoteInstallPath + "\\" + client_unattended_file_url.rpartition('\\')[2]
-    command = "rm " + client_unattended_file_relative_path
+    command = "del /f " + client_unattended_file_relative_path
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
     out, err = proc.communicate()
     statusCode = proc.returncode
@@ -432,4 +432,4 @@ if __name__ == '__main__':
     handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
     handler.setLevel(logging.INFO)
     app.logger.addHandler(handler)
-    app.run(threaded=True, port=8250)
+    app.run(threaded=True, host='0.0.0.0', port=8250)
