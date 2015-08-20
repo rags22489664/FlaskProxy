@@ -232,11 +232,18 @@ def deletetemplate():
 
 def removeMulticastTransmission(install_image_name, image_group_name, install_image_file_name):
 
-    command = "WDSUTIL /Remove-MulticastTransmission /Image:\"" + install_image_name + "\" /ImageType:Install /ImageGroup:\"" + image_group_name + "\"" + " /Filename:\"" + install_image_file_name + "\""
+    command = "WDSUTIL /Get-MulticastTransmission /Image:\"" + install_image_name + "\" /ImageType:Install /ImageGroup:\"" + image_group_name + "\"" + " /Filename:\"" + install_image_name + ".wim\""
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
     out, err = proc.communicate()
     statusCode = proc.returncode
     out = filter_non_printable(out)
+
+    if statusCode == 0:
+        command = "WDSUTIL /Remove-MulticastTransmission /Image:\"" + install_image_name + "\" /ImageType:Install /ImageGroup:\"" + image_group_name + "\"" + " /Filename:\"" + install_image_name + ".wim\""
+        proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate()
+        statusCode = proc.returncode
+        out = filter_non_printable(out)
 
     return [statusCode, out]
 
@@ -252,22 +259,36 @@ def deleteClientUnattendedFile(client_unattended_file_url):
     return [statusCode, out]
 
 def removeInstallImage(install_image_name, image_group_name, install_image_file_name):
-    command = "WDSUTIL /Remove-Image /Image:\"" + install_image_name + "\" /ImageType:Install /ImageGroup:\"" + image_group_name + "\"" + " /Filename:\"" + install_image_file_name + "\""
 
+    command = "WDSUTIL /Get-Image /Image:\"" + install_image_name + "\" /ImageType:Install /ImageGroup:\"" + image_group_name + "\"" + " /Filename:\"" + install_image_name + ".wim\""
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
     out, err = proc.communicate()
     statusCode = proc.returncode
     out = filter_non_printable(out)
+
+    if statusCode == 0:
+        command = "WDSUTIL /Remove-Image /Image:\"" + install_image_name + "\" /ImageType:Install /ImageGroup:\"" + image_group_name + "\"" + " /Filename:\"" + install_image_name + ".wim\""
+        proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate()
+        statusCode = proc.returncode
+        out = filter_non_printable(out)
 
     return [statusCode, out]
 
 def removeBootImage(boot_image_name, architecture, boot_image_file_name):
 
-    command = "WDSUTIL /Remove-Image /Image:\"" + boot_image_name + "\" /ImageType:Boot /Architecture:" + architecture + " /Filename:\"" + boot_image_file_name + "\""
+    command = "WDSUTIL /Get-Image /Image:\"" + boot_image_name + "\" /ImageType:Boot /Architecture:" + architecture + " /Filename:\"" + boot_image_name + ".wim\""
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
     out, err = proc.communicate()
     statusCode = proc.returncode
     out = filter_non_printable(out)
+
+    if statusCode == 0:
+        command = "WDSUTIL /Remove-Image /Image:\"" + boot_image_name + "\" /ImageType:Boot /Architecture:" + architecture + " /Filename:\"" + boot_image_name + ".wim\""
+        proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate()
+        statusCode = proc.returncode
+        out = filter_non_printable(out)
 
     return [statusCode, out]
 
@@ -310,15 +331,16 @@ def registertemplate():
         p.apply_async(configureImage, args=(template_uuid, client_unattended_file_url, architecture, image_group_name, image_url, boot_url, install_unattended_file_url, single_image_name, install_image_name, boot_image_name), callback=configureImageCallBack)
         result["status"] = "InProgress"
         result["status_code"] = 200
+        result["message"] = "Template registration in progress"
         with lock:
             template_download_progress[template_uuid] = result
         return sendresponse(result, 200)
     else:
         with lock:
             templateprogress = template_download_progress[template_uuid]
-            result["status"] = templateprogress["status"]
-            result["status_code"] = templateprogress["status_code"]
-            result["message"] = templateprogress["message"]
+        result["status"] = templateprogress["status"]
+        result["status_code"] = templateprogress["status_code"]
+        result["message"] = templateprogress["message"]
         return sendresponse(result, result["status_code"])
 
 def configureImageCallBack(arguments):
@@ -379,13 +401,13 @@ def configureImage(template_uuid, client_unattended_file_url, architecture, imag
         return arguments
 
     succeededOperations.append(addInstallImage)
-    [statusCode, out] = addBootImage(boot_url, boot_image_name)
+    [statusCode, out] = addBootImage(boot_url, boot_image_name, architecture)
     if statusCode != 0:
         updateTemplateDownloadProgress(template_uuid, out, "Fail", 400, succeededOperations)
         return arguments
 
     succeededOperations.append(addBootImage)
-    [statusCode, out] = setTransmissionTypeToImage(install_image_name, image_group_name)
+    [statusCode, out] = setTransmissionTypeToImage(install_image_name, image_group_name, image_url)
     if statusCode != 0:
         updateTemplateDownloadProgress(template_uuid, out, "Fail", 400, succeededOperations)
         return arguments
@@ -424,37 +446,62 @@ def downloadFile(urlToDownload, pathWhereToDownload):
     return [statusCode, out]
 
 
-def setTransmissionTypeToImage(transmission_image_name, image_group_name):
+def setTransmissionTypeToImage(transmission_image_name, image_group_name, image_url):
 
-    command = "WDSUTIL /New-MulticastTransmission /FriendlyName:\"" + transmission_image_name + " AutoCast Transmission\" /Image:\"" + transmission_image_name + "\" " \
-                                                                                                                                                                 "/ImageType:Install /ImageGroup:" + image_group_name + " /TransmissionType:AutoCast "
+    install_image_file_name = image_url.rpartition('\\')[2]
+    command = "WDSUTIL /Get-MulticastTransmission /Image:\"" + transmission_image_name + "\" /ImageType:Install /ImageGroup:\"" + image_group_name + "\"" + " /Filename:\"" + transmission_image_name + ".wim\""
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
     out, err = proc.communicate()
     statusCode = proc.returncode
     out = filter_non_printable(out)
+
+    if statusCode != 0:
+        command = "WDSUTIL /New-MulticastTransmission /FriendlyName:\"" + transmission_image_name + " AutoCast Transmission\" /Image:\"" + transmission_image_name + "\" " \
+                                                                                                                                                                     "/ImageType:Install /ImageGroup:" + image_group_name + " /TransmissionType:AutoCast "
+        proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate()
+        statusCode = proc.returncode
+        out = filter_non_printable(out)
 
     return [statusCode, out]
 
 def addInstallImage(image_url, relativepath_install_unattanded_file, imagegroupname, single_image_name, install_image_name):
 
-    command = "WDSUTIL /Add-Image /ImageFile:\"" + image_url + "\" /ImageType:Install /UnattendFile:\"" + relativepath_install_unattanded_file + "\" /ImageGroup:" + imagegroupname
-    if single_image_name:
-        command = command + " /SingleImage:\"" + single_image_name + "\"" + " /Name:\"" + install_image_name + "\""
+    install_image_file_name = image_url.rpartition('\\')[2]
+    command = "WDSUTIL /Get-Image /Image:\"" + install_image_name + "\" /ImageType:Install /ImageGroup:\"" + imagegroupname + "\"" + " /Filename:\"" + install_image_name + ".wim\""
 
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
     out, err = proc.communicate()
     statusCode = proc.returncode
     out = filter_non_printable(out)
+
+    if statusCode !=0:
+        command = "WDSUTIL /Add-Image /ImageFile:\"" + image_url + "\" /ImageType:Install /UnattendFile:\"" + relativepath_install_unattanded_file + "\" /ImageGroup:" + imagegroupname
+        if single_image_name:
+            command = command + " /SingleImage:\"" + single_image_name + "\"" + " /Name:\"" + install_image_name + "\" /Filename:\"" + install_image_name + ".wim\""
+
+        proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate()
+        statusCode = proc.returncode
+        out = filter_non_printable(out)
 
     return [statusCode, out]
 
-def addBootImage(boot_url, boot_image_name):
+def addBootImage(boot_url, boot_image_name, architecture):
 
-    command = "WDSUTIL /Add-Image /ImageFile:\"" + boot_url + "\" /ImageType:Boot" + " /Name:\"" + boot_image_name + "\""
+    boot_image_file_name = boot_url.rpartition('\\')[2]
+    command = "WDSUTIL /Get-Image /Image:\"" + boot_image_name + "\" /ImageType:Boot /Architecture:" + architecture + " /Filename:\"" + boot_image_name + ".wim\""
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
     out, err = proc.communicate()
     statusCode = proc.returncode
     out = filter_non_printable(out)
+
+    if statusCode != 0:
+        command = "WDSUTIL /Add-Image /ImageFile:\"" + boot_url + "\" /ImageType:Boot" + " /Name:\"" + boot_image_name + "\"" + " /Filename:\"" + boot_image_name + ".wim\""
+        proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate()
+        statusCode = proc.returncode
+        out = filter_non_printable(out)
 
     return [statusCode, out]
 
