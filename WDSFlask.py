@@ -17,7 +17,6 @@ p = ThreadPool(10)
 remoteInstallPath = "\\\\127.0.0.1\\reminst\\WdsClientUnattend"
 template_download_progress = dict()
 lock = Lock()
-IIS_DEFAULT_FOLDER="C:\\inetpub\\wwwroot"
 
 
 class ErrorClass(Exception):
@@ -77,18 +76,29 @@ def wdsutil():
     else:
         raise ErrorClass(out, status_code=200)
 
-@app.route("/adduserdata")
+@app.route("/addvmdata")
 def adduserdata():
 
-    string = request.args.get("UserData").encode('utf8');
+    string = request.args.get("VMData").encode('utf8');
     allEntires = string.split(";")
-    for entry in allEntires:
-        (vmIpOrMac, folder, fileName, contents) = entry.split(',', 3)
-        addUserData(vmIpOrMac, folder, fileName, contents)
-    raise ErrorClass("Success", 200)
+    result = dict()
+    try:
+        for entry in allEntires:
+            (vmIpOrMac, folder, fileName, contents) = entry.split(',', 3)
+            addVMData(vmIpOrMac, folder, fileName, contents)
+    except Exception as e:
+        result["status"] = "Fail"
+        result["status_code"] = 400
+        result["message"] = e.message
+        return sendresponse(result, result["status_code"])
 
-def addUserData(vmIpOrMac, folder, fileName, contents):
-    html_root = IIS_DEFAULT_FOLDER
+    result["status"] = "Pass"
+    result["status_code"] = 200
+    result["message"] = "Success"
+    return sendresponse(result, result["status_code"])
+
+def addVMData(vmIpOrMac, folder, fileName, contents):
+    html_root = os.getcwd()
     fileName = fileName + ".txt"
     targetMetadataFile = "meta-data.txt";
 
@@ -195,7 +205,13 @@ def deletetemplate():
         result["message"] = out
         result["status"] = "Fail"
         return sendresponse(result, result["status_code"])
-    [statusCode, out] = removeImage(install_image_name, image_group_name, install_image_file_name, boot_image_name, architecture, boot_image_file_name)
+    [statusCode, out] = removeInstallImage(install_image_name, image_group_name, install_image_file_name)
+    if statusCode != 0:
+        result["status_code"] = 400
+        result["message"] = out
+        result["status"] = "Fail"
+        return sendresponse(result, result["status_code"])
+    [statusCode, out] = removeBootImage(boot_image_name, architecture, boot_image_file_name)
     if statusCode != 0:
         result["status_code"] = 400
         result["message"] = out
@@ -235,7 +251,7 @@ def deleteClientUnattendedFile(client_unattended_file_url):
 
     return [statusCode, out]
 
-def removeImage(install_image_name, image_group_name, install_image_file_name, boot_image_name, architecture, boot_image_file_name):
+def removeInstallImage(install_image_name, image_group_name, install_image_file_name):
     command = "WDSUTIL /Remove-Image /Image:\"" + install_image_name + "\" /ImageType:Install /ImageGroup:\"" + image_group_name + "\"" + " /Filename:\"" + install_image_file_name + "\""
 
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
@@ -243,8 +259,9 @@ def removeImage(install_image_name, image_group_name, install_image_file_name, b
     statusCode = proc.returncode
     out = filter_non_printable(out)
 
-    if statusCode != 0:
-        return [statusCode, out]
+    return [statusCode, out]
+
+def removeBootImage(boot_image_name, architecture, boot_image_file_name):
 
     command = "WDSUTIL /Remove-Image /Image:\"" + boot_image_name + "\" /ImageType:Boot /Architecture:" + architecture + " /Filename:\"" + boot_image_file_name + "\""
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
@@ -290,7 +307,7 @@ def registertemplate():
     result = dict()
 
     if InitialTemplateDownloadRequest:
-        p.apply_async(configureImage, args=(template_uuid, client_unattended_file_url, architecture, image_group_name, image_url, boot_url, install_unattended_file_url, single_image_name, install_image_name, boot_image_name))
+        p.apply_async(configureImage, args=(template_uuid, client_unattended_file_url, architecture, image_group_name, image_url, boot_url, install_unattended_file_url, single_image_name, install_image_name, boot_image_name), callback=configureImageCallBack)
         result["status"] = "InProgress"
         result["status_code"] = 200
         with lock:
@@ -298,41 +315,93 @@ def registertemplate():
         return sendresponse(result, 200)
     else:
         with lock:
-            result = template_download_progress[template_uuid]
+            templateprogress = template_download_progress[template_uuid]
+            result["status"] = templateprogress["status"]
+            result["status_code"] = templateprogress["status_code"]
+            result["message"] = templateprogress["message"]
         return sendresponse(result, result["status_code"])
+
+def configureImageCallBack(arguments):
+
+    template_uuid = arguments["template_uuid"]
+    client_unattended_file_url = arguments["client_unattended_file_url"]
+    architecture = arguments["architecture"]
+    image_group_name = arguments["image_group_name"]
+    image_url = arguments["image_url"]
+    boot_url = arguments["boot_url"]
+    install_image_name = arguments["install_image_name"]
+    boot_image_name = arguments["boot_image_name"]
+    result = template_download_progress[template_uuid]
+    if result["status_code"] == 400:
+        for operation in reversed(result["succeededOperations"]):
+            if operation == removeBootImage:
+                boot_image_file_name = boot_url.rpartition('\\')[2]
+                [statusCode, out] = removeBootImage(boot_image_name, architecture, boot_image_file_name)
+            if operation == addInstallImage:
+                install_image_file_name = image_url.rpartition('\\')[2]
+                [statusCode, out] = removeInstallImage(install_image_name, image_group_name, install_image_file_name)
+            if operation == downloadFile:
+                [statusCode, out] = deleteClientUnattendedFile(client_unattended_file_url)
+            if statusCode != 0:
+                message = result["message"] + " and also failed while rolling back " + out
+                updateTemplateDownloadProgress(template_uuid, message, "Fail", 400, result["succeededOperations"])
 
 
 def configureImage(template_uuid, client_unattended_file_url, architecture, image_group_name, image_url, boot_url, install_unattended_file_url, single_image_name, install_image_name, boot_image_name):
 
+    arguments = dict()
+    arguments["template_uuid"] = template_uuid
+    arguments["client_unattended_file_url"] = client_unattended_file_url
+    arguments["architecture"] = architecture
+    arguments["image_group_name"] = image_group_name
+    arguments["image_url"] = image_url
+    arguments["boot_url"] = boot_url
+    arguments["install_unattended_file_url"] = install_unattended_file_url
+    arguments["single_image_name"] = single_image_name
+    arguments["install_image_name"] = install_image_name
+    arguments["boot_image_name"] = boot_image_name
+    succeededOperations = []
     [statusCode, out] = downloadFile(client_unattended_file_url, remoteInstallPath)
     if statusCode != 0:
-        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400)
-        return
+        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400, succeededOperations)
+        return arguments
 
+    succeededOperations.append(downloadFile)
     [statusCode, out] = createImageGroup(image_group_name)
     if statusCode != 0:
-        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400)
-        return
+        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400, succeededOperations)
+        return arguments
 
-    [statusCode, out] = addImage(image_url, boot_url, install_unattended_file_url, image_group_name, single_image_name, install_image_name, boot_image_name)
+    succeededOperations.append(createImageGroup)
+    [statusCode, out] = addInstallImage(image_url, install_unattended_file_url, image_group_name, single_image_name, install_image_name)
     if statusCode != 0:
-        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400)
-        return
+        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400, succeededOperations)
+        return arguments
 
+    succeededOperations.append(addInstallImage)
+    [statusCode, out] = addBootImage(boot_url, boot_image_name)
+    if statusCode != 0:
+        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400, succeededOperations)
+        return arguments
+
+    succeededOperations.append(addBootImage)
     [statusCode, out] = setTransmissionTypeToImage(install_image_name, image_group_name)
     if statusCode != 0:
-        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400)
-        return
+        updateTemplateDownloadProgress(template_uuid, out, "Fail", 400, succeededOperations)
+        return arguments
+    succeededOperations.append(setTransmissionTypeToImage)
 
     client_unattended_file_relative_path = "WdsClientUnattend" + "\\" + client_unattended_file_url.rpartition('\\')[2]
     boot_image_file_relative_path = "Boot\\" + architecture + "\\Images\\" + boot_url.rpartition('\\')[2]
-    updateTemplateDownloadProgress(template_uuid, out, "Pass", 200, boot_image_file_relative_path, client_unattended_file_relative_path)
+    updateTemplateDownloadProgress(template_uuid, out, "Pass", 200, succeededOperations, boot_image_file_relative_path, client_unattended_file_relative_path)
+    return arguments
 
 
-def updateTemplateDownloadProgress(template_uuid, message, status, status_code, boot_image_file_relative_path=None, client_unattended_file_relative_path=None):
+def updateTemplateDownloadProgress(template_uuid, message, status, status_code, succeededOperations, boot_image_file_relative_path=None, client_unattended_file_relative_path=None):
     result = dict()
     result["status"] = status
     result["status_code"] = status_code
+    result["succeededOperations"] = succeededOperations
     if boot_image_file_relative_path is not None:
         result["BootImagePath"] = boot_image_file_relative_path
     if client_unattended_file_relative_path is not None:
@@ -366,7 +435,7 @@ def setTransmissionTypeToImage(transmission_image_name, image_group_name):
 
     return [statusCode, out]
 
-def addImage(image_url, boot_url, relativepath_install_unattanded_file, imagegroupname, single_image_name, install_image_name, boot_image_name):
+def addInstallImage(image_url, relativepath_install_unattanded_file, imagegroupname, single_image_name, install_image_name):
 
     command = "WDSUTIL /Add-Image /ImageFile:\"" + image_url + "\" /ImageType:Install /UnattendFile:\"" + relativepath_install_unattanded_file + "\" /ImageGroup:" + imagegroupname
     if single_image_name:
@@ -377,8 +446,9 @@ def addImage(image_url, boot_url, relativepath_install_unattanded_file, imagegro
     statusCode = proc.returncode
     out = filter_non_printable(out)
 
-    if statusCode != 0:
-        return [statusCode, out]
+    return [statusCode, out]
+
+def addBootImage(boot_url, boot_image_name):
 
     command = "WDSUTIL /Add-Image /ImageFile:\"" + boot_url + "\" /ImageType:Boot" + " /Name:\"" + boot_image_name + "\""
     proc = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
