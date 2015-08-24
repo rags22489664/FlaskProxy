@@ -319,13 +319,6 @@ def removeBootImage(boot_image_name, architecture, boot_image_file_name):
 @app.route("/registertemplate")
 def registertemplate():
     template_uuid = request.args.get("uuid").encode('utf8');
-    image_url = ""
-    boot_url = ""
-    client_unattended_file_url = ""
-    install_unattended_file_url = ""
-    image_group_name = ""
-    architecture = ""
-    single_image_name = ""
     if request.args.get("InstallImageFile"):
         image_url = request.args.get("InstallImageFile").encode('utf8');
     if request.args.get("InstallImageName"):
@@ -361,7 +354,8 @@ def registertemplate():
     else:
         with lock:
             templateprogress = dict(template_download_progress[template_uuid])
-        del templateprogress["succeededOperations"]
+        if "succeededOperations" in templateprogress:
+            del templateprogress["succeededOperations"]
         return sendresponse(templateprogress, templateprogress["status_code"])
 
 def configureImageCallBack(arguments):
