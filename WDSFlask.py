@@ -9,9 +9,9 @@ from multiprocessing.pool import ThreadPool
 import os
 import base64
 import win32serviceutil
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='')
 p = ThreadPool(10)
 
 remoteInstallPath = "\\\\127.0.0.1\\reminst\\WdsClientUnattend"
@@ -49,6 +49,29 @@ def sendresponse(res, status_code):
 
 def filter_non_printable(str):
     return ''.join([c for c in str if (31 < ord(c) < 126) or ord(c) == 9 or ord(c) == 10 or ord(c) == 11 or ord(c) == 13 or ord(c) == 32])
+
+@app.route('/sendfile/')
+def send_file():
+    filename = request.args.get("filename").encode('utf8');
+    macaddress = request.args.get("macaddress").encode('utf8');
+    macaddress = macaddress.replace(":","")
+    result = dict()
+    if filename == "user-data.txt":
+        if os.path.exists(os.getcwd() + "\\userdata\\" + macaddress + "\\" + filename):
+            return send_from_directory(os.getcwd() + "\\userdata\\" + macaddress + "\\", filename)
+        else:
+            result["status"] = "Fail"
+            result["status_code"] = 400
+            result["message"] = "File does not exist"
+            return sendresponse(result, result["status_code"])
+    else:
+        if filename in ["availability-zone.txt", "cloud-identifier.txt", "instance-id.txt", "local-hostname.txt", "local-ipv4.txt", "meta-data.txt", "public-hostname.txt", "public-ipv4.txt", "public-keys.txt", "service-offering.txt", "vm-id.txt"]:
+            return send_from_directory(os.getcwd() + "\\metadata\\" + macaddress + "\\", filename)
+        else:
+            result["status"] = "Fail"
+            result["status_code"] = 400
+            result["message"] = "File does not exist"
+            return sendresponse(result, result["status_code"])
 
 
 @app.route("/wdsutil")
@@ -337,11 +360,9 @@ def registertemplate():
         return sendresponse(result, 200)
     else:
         with lock:
-            templateprogress = template_download_progress[template_uuid]
-        result["status"] = templateprogress["status"]
-        result["status_code"] = templateprogress["status_code"]
-        result["message"] = templateprogress["message"]
-        return sendresponse(result, result["status_code"])
+            templateprogress = dict(template_download_progress[template_uuid])
+        del templateprogress["succeededOperations"]
+        return sendresponse(templateprogress, templateprogress["status_code"])
 
 def configureImageCallBack(arguments):
 
