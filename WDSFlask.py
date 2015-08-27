@@ -9,11 +9,14 @@ from multiprocessing.pool import ThreadPool
 import os
 import base64
 import win32serviceutil
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, abort, Response
+from functools import wraps
+
 
 app = Flask(__name__, static_url_path='')
 thread_pool = ThreadPool(10)
 
+configuration = "WDSAgentSettings.cfg"
 REMOTE_INSTALL_PATH = "\\\\127.0.0.1\\reminst\\WdsClientUnattend"
 template_download_progress = dict()
 lock = Lock()
@@ -34,6 +37,10 @@ class ErrorClass(Exception):
         print "message", self.message
         rv['message'] = self.message
         return rv
+
+
+class WDSConfiguration(object):
+    SECRET_KEY="cloudstack"
 
 
 @app.errorhandler(ErrorClass)
@@ -65,6 +72,70 @@ def sendfile_usage_error():
                         "public-ipv4.txt | public-keys.txt | service-offering.txt | vm-id.txt&" \
                         " macaddress=<mac address of the client machine>&"
     return send_response(result, result["status_code"])
+
+
+def load_configuration():
+    app.config.from_object('WDSFlask.WDSConfiguration')
+    filename = os.path.join(app.instance_path, configuration)
+    if os.path.isfile(filename):
+        with open(filename) as configFile:
+            content = configFile.readlines()
+            for setting in content:
+                keyValue = setting.split('=')
+                if keyValue and len(keyValue) is 2:
+                    app.config[keyValue[0].strip()] = keyValue[1].strip()
+
+
+def update_configuration(key, value):
+    app.config[key] = value
+
+    # persist the configuration so that it can be read back if the
+    # service is restarted
+    if not os.path.exists(app.instance_path):
+        os.makedirs(app.instance_path)
+
+    filename = os.path.join(app.instance_path, configuration)
+    with open(filename, 'w+') as output:
+        for key, value in app.config.iteritems():
+            if key is 'SECRET_KEY' or key not in app.default_config:
+                output.write(key + ' = ' + str(value))
+
+
+def requires_auth(func):
+    @wraps(func)
+    def decorated(*args, **kwargs):
+        expected_key = app.config['SECRET_KEY']
+        given_key = request.json.get('secret_key')
+        if expected_key and len(expected_key) > 0:
+            if not given_key or given_key != expected_key:
+                return Response(
+                    'Could not verify whether you are authorized to access the URL requested.\n'
+                    'You have to provide proper credentials.\n', 401)
+        return func(*args, **kwargs)
+    return decorated
+
+
+@app.route('/register', methods = ['POST'])
+@requires_auth
+def register():
+    new_secret_key = request.json.get('new_secret_key')
+    if new_secret_key:
+        update_configuration('SECRET_KEY', new_secret_key)
+        result = dict()
+        result["status"] = "OK"
+        return send_response(result, 200)
+    else:
+        return Response(
+            'New secret key not provided.\n', 401)
+
+
+@app.route("/test", methods = ['POST'])
+@requires_auth
+def test():
+    key = app.secret_key
+    result = dict()
+    result["status"] = "OK"
+    return send_response(result, 200)
 
 
 @app.route('/sendfile/')
@@ -655,6 +726,8 @@ class PySvc(win32serviceutil.ServiceFramework):
         handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
         handler.setLevel(logging.INFO)
         app.logger.addHandler(handler)
+        load_configuration()
+        #app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
         app.run(threaded=True, host='0.0.0.0', port=8250)
 
 
@@ -663,4 +736,6 @@ if __name__ == '__main__':
     '''handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
     handler.setLevel(logging.INFO)
     app.logger.addHandler(handler)
+    load_configuration()
+    #app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
     app.run(threaded=True, host='0.0.0.0', port=8250)'''
