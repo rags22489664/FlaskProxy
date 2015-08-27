@@ -469,9 +469,9 @@ def configure_image(template_uuid, client_unattended_file_url, architecture, ima
     arguments["install_image_name"] = install_image_name
     arguments["boot_image_name"] = boot_image_name
     succeeded_operations = []
-    [status_code, out] = download_file(client_unattended_file_url, REMOTE_INSTALL_PATH)
+    [status_code, out, err] = download_file(client_unattended_file_url, REMOTE_INSTALL_PATH)
     if status_code != 0:
-        update_template_download_progress(template_uuid, out, "Fail", 400, succeeded_operations)
+        update_template_download_progress(template_uuid, out + "Error occured while downloading the file: " + err, "Fail", 400, succeeded_operations)
         return arguments
 
     succeeded_operations.append(download_file)
@@ -519,6 +519,8 @@ def update_template_download_progress(template_uuid, message, status, status_cod
         result["WdsClientUnattend"] = client_unattended_file_relative_path
     if message:
         result["message"] = message
+    else:
+        result["message"] = "Template registration failed"
     with lock:
         template_download_progress[template_uuid] = result
 
@@ -531,7 +533,7 @@ def download_file(url_to_download, path_where_to_download):
     status_code = proc.returncode
     out = filter_non_printable(out)
 
-    return [status_code, out]
+    return [status_code, out, err]
 
 
 def set_transmission_type_to_image(transmission_image_name, image_group_name, image_url):
@@ -653,12 +655,12 @@ class PySvc(win32serviceutil.ServiceFramework):
         handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
         handler.setLevel(logging.INFO)
         app.logger.addHandler(handler)
-        app.run(threaded=True)
+        app.run(threaded=True, host='0.0.0.0', port=8250)
 
 
 if __name__ == '__main__':
-    # win32serviceutil.HandleCommandLine(PySvc)
-    handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
+    win32serviceutil.HandleCommandLine(PySvc)
+    '''handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
     handler.setLevel(logging.INFO)
     app.logger.addHandler(handler)
-    app.run(threaded=True, host='0.0.0.0', port=8250)
+    app.run(threaded=True, host='0.0.0.0', port=8250)'''
