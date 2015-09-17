@@ -330,21 +330,22 @@ def delete_template_usage_error():
     return send_response(result, result["status_code"])
 
 
-@app.route("/deletetemplate")
+@app.route("/deletetemplate", methods = ['POST'])
+@requires_auth
 def delete_template():
-    if request.args.get("uuid") is None:
+    if request.json.get("uuid") is None:
         return delete_template_usage_error()
-    template_uuid = request.args.get("uuid").encode('utf8')
-    if not all([request.args.get("InstallImageName"), request.args.get("BootImageName"),
-                request.args.get("ClientUnattendFile"), request.args.get("ImageGroupName"),
-                request.args.get("Architecture")]):
+    template_uuid = request.json.get("uuid").encode('utf8')
+    if not all([request.json.get("InstallImageName"), request.json.get("BootImageName"),
+                request.json.get("ClientUnattendFile"), request.json.get("ImageGroupName"),
+                request.json.get("Architecture")]):
         return delete_template_usage_error()
 
-    install_image_name = request.args.get("InstallImageName").encode('utf8')
-    boot_image_name = request.args.get("BootImageName").encode('utf8')
-    client_unattended_file_url = request.args.get("ClientUnattendFile").encode('utf8')
-    image_group_name = request.args.get("ImageGroupName").encode('utf8')
-    architecture = request.args.get("Architecture").encode('utf8')
+    install_image_name = request.json.get("InstallImageName").encode('utf8')
+    boot_image_name = request.json.get("BootImageName").encode('utf8')
+    client_unattended_file_url = request.json.get("ClientUnattendFile").encode('utf8')
+    image_group_name = request.json.get("ImageGroupName").encode('utf8')
+    architecture = request.json.get("Architecture").encode('utf8')
 
     result = dict()
     [status_code, out] = remove_multicast_transmission(install_image_name, image_group_name)
@@ -466,46 +467,47 @@ def register_template_usage_error():
     result = dict()
     result["status"] = "Fail"
     result["status_code"] = 400
-    result["message"] = "Usage: http://x.x.x.x/registertemplate?" \
-                        "uuid=<uuid>&" \
-                        "ImageGroupName=<image group name>&" \
-                        "ClientUnattendFile=<client unattend file path>&" \
-                        "InstallImageFile=<install image file path>&" \
-                        "BootImageName=<unique name of the boot image>&" \
-                        "BootImageFile=<boot image file path>&" \
-                        "ImageUnattendFile=<unattended xml file path>&" \
-                        "SingleImageName=<image name out of .wim file to import>&" \
-                        "InstallImageName=<unique name of the single image>&" \
-                        "Architecture=<x64 or x86>"
+    result["message"] = "Please pass " \
+                        "uuid:<template uuid>" \
+                        " ImageGroupName:<image group name>" \
+                        " ClientUnattendFile:<client unattend file path>" \
+                        " InstallImageFile:<install image file path>" \
+                        " BootImageName:<unique name of the boot image>" \
+                        " BootImageFile:<boot image file path>" \
+                        " ImageUnattendFile:<unattended xml file path>" \
+                        " SingleImageName:<image name out of .wim file to import>" \
+                        " InstallImageName:<unique name of the single image>" \
+                        " Architecture:<x64 or x86> in the json payload"
     return send_response(result, result["status_code"])
 
 
-@app.route("/registertemplate")
+@app.route("/registertemplate", methods = ['POST'])
+@requires_auth
 def register_template():
     result = dict()
-    if request.args.get("uuid") is None:
+    if request.json.get("uuid") is None:
         return register_template_usage_error()
-    template_uuid = request.args.get("uuid").encode('utf8')
+    template_uuid = request.json.get("uuid").encode('utf8')
 
     with lock:
         initial_template_download_request = template_uuid not in template_download_progress
 
     if initial_template_download_request:
-        if not all([request.args.get("InstallImageFile"), request.args.get("InstallImageName"),
-                    request.args.get("SingleImageName"), request.args.get("BootImageFile"),
-                    request.args.get("BootImageName"), request.args.get("ClientUnattendFile"),
-                    request.args.get("ImageUnattendFile"), request.args.get("ImageGroupName"),
-                    request.args.get("Architecture")]):
+        if not all([request.json.get("InstallImageFile"), request.json.get("InstallImageName"),
+                    request.json.get("SingleImageName"), request.json.get("BootImageFile"),
+                    request.json.get("BootImageName"), request.json.get("ClientUnattendFile"),
+                    request.json.get("ImageUnattendFile"), request.json.get("ImageGroupName"),
+                    request.json.get("Architecture")]):
             return register_template_usage_error()
-        image_url = request.args.get("InstallImageFile").encode('utf8')
-        install_image_name = request.args.get("InstallImageName").encode('utf8')
-        boot_url = request.args.get("BootImageFile").encode('utf8')
-        boot_image_name = request.args.get("BootImageName").encode('utf8')
-        client_unattended_file_url = request.args.get("ClientUnattendFile").encode('utf8')
-        install_unattended_file_url = request.args.get("ImageUnattendFile").encode('utf8')
-        image_group_name = request.args.get("ImageGroupName").encode('utf8')
-        architecture = request.args.get("Architecture").encode('utf8')
-        single_image_name = request.args.get("SingleImageName").encode('utf8')
+        image_url = request.json.get("InstallImageFile").encode('utf8')
+        install_image_name = request.json.get("InstallImageName").encode('utf8')
+        boot_url = request.json.get("BootImageFile").encode('utf8')
+        boot_image_name = request.json.get("BootImageName").encode('utf8')
+        client_unattended_file_url = request.json.get("ClientUnattendFile").encode('utf8')
+        install_unattended_file_url = request.json.get("ImageUnattendFile").encode('utf8')
+        image_group_name = request.json.get("ImageGroupName").encode('utf8')
+        architecture = request.json.get("Architecture").encode('utf8')
+        single_image_name = request.json.get("SingleImageName").encode('utf8')
 
         thread_pool.apply_async(configure_image,
                       args=(template_uuid, client_unattended_file_url, architecture,
