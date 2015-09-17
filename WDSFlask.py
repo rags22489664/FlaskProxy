@@ -66,11 +66,10 @@ def sendfile_usage_error():
     result = dict()
     result["status"] = "Fail"
     result["status_code"] = 400
-    result["message"] = "Usage: http://x.x.x.x/sendfile?" \
-                        "filename=user-data.txt | availability-zone.txt | cloud-identifier.txt | instance-id.txt |" \
+    result["message"] = "Please pass filename as user-data.txt | availability-zone.txt | cloud-identifier.txt | instance-id.txt |" \
                         "local-hostname.txt | local-ipv4.txt | meta-data.txt | public-hostname.txt |" \
-                        "public-ipv4.txt | public-keys.txt | service-offering.txt | vm-id.txt&" \
-                        " macaddress=<mac address of the client machine>&"
+                        "public-ipv4.txt | public-keys.txt | service-offering.txt | vm-id.txt" \
+                        " and macaddress:<mac address of the client machine> in the json payload"
     return send_response(result, result["status_code"])
 
 
@@ -105,12 +104,17 @@ def requires_auth(func):
     @wraps(func)
     def decorated(*args, **kwargs):
         expected_key = app.config['SECRET_KEY']
-        given_key = request.json.get('secret_key')
-        if expected_key and len(expected_key) > 0:
-            if not given_key or given_key != expected_key:
-                return Response(
-                    'Could not verify whether you are authorized to access the URL requested.\n'
-                    'You have to provide proper credentials.\n', 401)
+        if request.json:
+            given_key = request.json.get('secret_key')
+            if expected_key and len(expected_key) > 0:
+                if not given_key or given_key != expected_key:
+                    return Response(
+                        'Could not verify whether you are authorized to access the URL requested.\n'
+                        'You have to provide proper credentials.\n', 401)
+        else:
+            return Response(
+                'Could not verify whether you are authorized to access the URL requested.\n'
+                'You have to provide proper credentials.\n', 401)
         return func(*args, **kwargs)
     return decorated
 
@@ -138,28 +142,31 @@ def test():
     return send_response(result, 200)
 
 
-@app.route('/sendfile/')
+@app.route('/sendfile/', methods = ['POST'])
+@requires_auth
 def send_file():
     result = dict()
-    if not all([request.args.get("filename"), request.args.get("macaddress")]):
+    fileName = request.json.get("filename")
+    macAddress = request.json.get("macaddress")
+    if not all([fileName, macAddress]):
         return sendfile_usage_error()
-
-    filename = request.args.get("filename").encode('utf8')
-    macaddress = request.args.get("macaddress").encode('utf8')
-    macaddress = macaddress.replace(":", "")
-    if filename == "user-data.txt":
-        if os.path.exists(os.getcwd() + "\\userdata\\" + macaddress + "\\" + filename):
-            return send_from_directory(os.getcwd() + "\\userdata\\" + macaddress + "\\", filename)
+    html_root = app.instance_path
+    fileName = fileName.encode('utf8')
+    macAddress = macAddress.encode('utf8')
+    macAddress = macAddress.replace(":", "")
+    if fileName == "user-data.txt":
+        if os.path.exists(html_root + "\\userdata\\" + macAddress + "\\" + fileName):
+            return send_from_directory(html_root + "\\userdata\\" + macAddress + "\\", fileName)
         else:
             result["status"] = "Fail"
             result["status_code"] = 400
             result["message"] = "File does not exist"
             return send_response(result, result["status_code"])
     else:
-        if filename in ["availability-zone.txt", "cloud-identifier.txt", "instance-id.txt",
+        if fileName in ["availability-zone.txt", "cloud-identifier.txt", "instance-id.txt",
                         "local-hostname.txt", "local-ipv4.txt", "meta-data.txt", "public-hostname.txt",
                         "public-ipv4.txt", "public-keys.txt", "service-offering.txt", "vm-id.txt"]:
-            return send_from_directory(os.getcwd() + "\\metadata\\" + macaddress + "\\", filename)
+            return send_from_directory(html_root + "\\metadata\\" + macAddress + "\\", fileName)
         else:
             result["status"] = "Fail"
             result["status_code"] = 400
@@ -193,15 +200,30 @@ def wdsutil():
         raise ErrorClass(out, status_code=200)
 
 
-@app.route("/addvmdata")
+@app.route("/addvmdata", methods = ['POST'])
+@requires_auth
 def add_vmdata():
-
-    string = request.args.get("VMData").encode('utf8')
-    command_arguments = string.split(";")
+    vmData = request.json.get("vm_data")
     result = dict()
+    if not vmData:
+        result["status"] = "Fail"
+        result["status_code"] = 400
+        result["message"] = "Please pass vm_data in json payload"
+        return send_response(result, result["status_code"])
+
     try:
-        for entry in command_arguments:
-            (vm_mac_address, folder, filename, contents) = entry.split(',', 3)
+        for entry in vmData:
+            vm_mac_address = entry.get("mac_address")
+            folder = entry.get("folder")
+            filename = entry.get("file")
+            contents = entry.get("contents")
+
+            if not all([vm_mac_address, folder, filename, contents]):
+                result["status"] = "Fail"
+                result["status_code"] = 400
+                result["message"] = "Please pass mac_address, folder, file and contents under vm_data in json payload"
+                return send_response(result, result["status_code"])
+
             add_vmdata(vm_mac_address, folder, filename, contents)
     except Exception as e:
         result["status"] = "Fail"
@@ -216,9 +238,14 @@ def add_vmdata():
 
 
 def add_vmdata(vm_mac_address, folder, filename, contents):
-    html_root = os.getcwd()
+    html_root = app.instance_path
     filename = filename + ".txt"
     targetMetadataFile = "meta-data.txt"
+
+    vm_mac_address = vm_mac_address.encode('utf8')
+    folder = folder.encode('utf8')
+    filename = filename.encode('utf8')
+    contents = contents.encode('utf8')
 
     baseFolder = os.path.join(html_root, folder, vm_mac_address)
     if not os.path.exists(baseFolder):
@@ -724,18 +751,18 @@ class PySvc(win32serviceutil.ServiceFramework):
 
     def main(self):
         handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
-        handler.setLevel(logging.INFO)
-        app.logger.addHandler(handler)
-        load_configuration()
+        #handler.setLevel(logging.INFO)
+        #app.logger.addHandler(handler)
+        #load_configuration()
         #app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
-        app.run(threaded=True, host='0.0.0.0', port=8250)
+        #app.run(threaded=True, host='0.0.0.0', port=8250)
 
 
 if __name__ == '__main__':
-    win32serviceutil.HandleCommandLine(PySvc)
-    '''handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
+    #win32serviceutil.HandleCommandLine(PySvc)
+    handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
     handler.setLevel(logging.INFO)
     app.logger.addHandler(handler)
     load_configuration()
-    #app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
-    app.run(threaded=True, host='0.0.0.0', port=8250)'''
+    app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
+    #app.run(threaded=True, host='0.0.0.0', port=8250)
