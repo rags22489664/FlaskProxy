@@ -146,7 +146,7 @@ def test():
     return send_response(result, 200)
 
 
-@app.route('/sendfile/', methods = ['POST'])
+@app.route('/sendfile', methods = ['POST'])
 @requires_auth
 def send_file():
     result = dict()
