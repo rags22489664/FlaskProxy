@@ -51,6 +51,7 @@ def handle_invalid_usage(error):
 
 
 def send_response(res, status_code):
+    app.logger.error(str(res) + " Status Code : " + str(status_code))
     response = jsonify(res)
     response.status_code = status_code
     return response
@@ -108,10 +109,12 @@ def requires_auth(func):
             given_key = request.json.get('secret_key')
             if expected_key and len(expected_key) > 0:
                 if not given_key or given_key != expected_key:
+                    app.logger.error('Could not verify whether you are authorized to access the URL requested.')
                     return Response(
                         'Could not verify whether you are authorized to access the URL requested.\n'
                         'You have to provide proper credentials.\n', 401)
         else:
+            app.logger.error('Could not verify whether you are authorized to access the URL requested.')
             return Response(
                 'Could not verify whether you are authorized to access the URL requested.\n'
                 'You have to provide proper credentials.\n', 401)
@@ -129,6 +132,7 @@ def register():
         result["status"] = "OK"
         return send_response(result, 200)
     else:
+        app.logger.error('New secret key not provided')
         return Response(
             'New secret key not provided.\n', 401)
 
@@ -752,7 +756,7 @@ class PySvc(win32serviceutil.ServiceFramework):
         self.ReportServiceStatus(win32service.SERVICE_STOPPED)
 
     def main(self):
-        handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
+        handler = RotatingFileHandler(app.instance_path + '\\agent.log', maxBytes=10000, backupCount=1)
         handler.setLevel(logging.INFO)
         app.logger.addHandler(handler)
         load_configuration()
