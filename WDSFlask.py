@@ -757,7 +757,7 @@ class PySvc(win32serviceutil.ServiceFramework):
         app.logger.addHandler(handler)
         load_configuration()
         app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
-        app.run(threaded=True, host='0.0.0.0', port=8250)
+        #app.run(threaded=True, host='0.0.0.0', port=8250)
 
 
 if __name__ == '__main__':
