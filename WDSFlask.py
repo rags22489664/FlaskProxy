@@ -753,18 +753,18 @@ class PySvc(win32serviceutil.ServiceFramework):
 
     def main(self):
         handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
-        #handler.setLevel(logging.INFO)
-        #app.logger.addHandler(handler)
-        #load_configuration()
-        #app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
-        #app.run(threaded=True, host='0.0.0.0', port=8250)
+        handler.setLevel(logging.INFO)
+        app.logger.addHandler(handler)
+        load_configuration()
+        app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
+        app.run(threaded=True, host='0.0.0.0', port=8250)
 
 
 if __name__ == '__main__':
-    #win32serviceutil.HandleCommandLine(PySvc)
-    handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
-    handler.setLevel(logging.INFO)
-    app.logger.addHandler(handler)
-    load_configuration()
-    app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
+    win32serviceutil.HandleCommandLine(PySvc)
+    #handler = RotatingFileHandler('foo.log', maxBytes=10000, backupCount=1)
+    #handler.setLevel(logging.INFO)
+    #app.logger.addHandler(handler)
+    #load_configuration()
+    #app.run(threaded=True, port=8250, host='0.0.0.0', ssl_context='adhoc')
     #app.run(threaded=True, host='0.0.0.0', port=8250)
